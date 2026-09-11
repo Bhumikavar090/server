@@ -1,6 +1,8 @@
 const express = require("express");
 
 const Issue = require("../models/Issue");
+const Project = require("../models/Project");
+
 const { analyzeIssue } = require("../services/aiService");
 
 const router = express.Router();
@@ -15,24 +17,36 @@ router.post("/", async (req, res) => {
       description,
       priority,
       technicalContext,
+      project,
     } = req.body;
 
-    if (!title || !description) {
+    if (!title || !description || !project) {
       return res.status(400).json({
-        message: "Title and description are required",
+        message:
+          "Title, description and project are required",
       });
     }
 
-    // Save the issue first so the user's report is never lost
+    const existingProject =
+      await Project.findById(project);
+
+    if (!existingProject) {
+      return res.status(404).json({
+        message: "Project not found",
+      });
+    }
+
+    // Save issue first
     const issue = await Issue.create({
       title,
       description,
       priority: priority || "medium",
       technicalContext: technicalContext || "",
+      project,
     });
 
     try {
-      // Generate AI analysis using the available technical context
+      // Generate AI analysis
       const analysis = await analyzeIssue(
         title,
         description,
@@ -44,8 +58,10 @@ router.post("/", async (req, res) => {
       issue.aiAnalysis = {
         summary: analysis.summary,
         possibleCause: analysis.possibleCause,
-        suggestedAction: analysis.suggestedAction,
-        investigationSteps: analysis.investigationSteps,
+        suggestedAction:
+          analysis.suggestedAction,
+        investigationSteps:
+          analysis.investigationSteps,
         confidence: analysis.confidence,
       };
 
@@ -80,14 +96,47 @@ router.post("/", async (req, res) => {
 
 router.get("/", async (req, res) => {
   try {
-    const issues = await Issue.find().sort({
-      createdAt: -1,
-    });
+    const issues = await Issue.find()
+      .populate("project", "name")
+      .sort({
+        createdAt: -1,
+      });
 
     res.status(200).json(issues);
   } catch (error) {
+    console.error(
+      "Issue fetch failed:",
+      error.message
+    );
+
     res.status(500).json({
       message: "Failed to fetch issues",
+    });
+  }
+});
+
+
+// GET ISSUES BY PROJECT
+
+router.get("/project/:projectId", async (req, res) => {
+  try {
+    const issues = await Issue.find({
+      project: req.params.projectId,
+    })
+      .populate("project", "name")
+      .sort({
+        createdAt: -1,
+      });
+
+    res.status(200).json(issues);
+  } catch (error) {
+    console.error(
+      "Project issues fetch failed:",
+      error.message
+    );
+
+    res.status(500).json({
+      message: "Failed to fetch project issues",
     });
   }
 });
@@ -99,7 +148,7 @@ router.get("/:id", async (req, res) => {
   try {
     const issue = await Issue.findById(
       req.params.id
-    );
+    ).populate("project", "name");
 
     if (!issue) {
       return res.status(404).json({
@@ -109,6 +158,11 @@ router.get("/:id", async (req, res) => {
 
     res.status(200).json(issue);
   } catch (error) {
+    console.error(
+      "Issue fetch failed:",
+      error.message
+    );
+
     res.status(500).json({
       message: "Failed to fetch issue",
     });

@@ -19,6 +19,12 @@ const issueSchema = new mongoose.Schema(
       default: "",
     },
 
+    project: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Project",
+      required: true,
+    },
+
     status: {
       type: String,
       enum: ["open", "investigating", "resolved"],
@@ -60,6 +66,32 @@ const issueSchema = new mongoose.Schema(
       confidence: {
         type: Number,
         default: 0,
+      },
+    },
+
+    investigation: {
+      steps: [
+        {
+          text: {
+            type: String,
+            required: true,
+          },
+
+          completed: {
+            type: Boolean,
+            default: false,
+          },
+        },
+      ],
+
+      findings: {
+        type: String,
+        default: "",
+      },
+
+      resolution: {
+        type: String,
+        default: "",
       },
     },
   },
