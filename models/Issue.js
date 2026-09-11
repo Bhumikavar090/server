@@ -11,6 +11,12 @@ const issueSchema = new mongoose.Schema(
     description: {
       type: String,
       required: true,
+      trim: true,
+    },
+
+    technicalContext: {
+      type: String,
+      default: "",
     },
 
     status: {
@@ -46,13 +52,17 @@ const issueSchema = new mongoose.Schema(
         default: "",
       },
 
+      investigationSteps: {
+        type: [String],
+        default: [],
+      },
+
       confidence: {
         type: Number,
         default: 0,
       },
     },
   },
-
   {
     timestamps: true,
   }

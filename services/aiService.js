@@ -1,102 +1,115 @@
-const OpenAI = require("openai");
+const { GoogleGenAI } = require("@google/genai");
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
 });
 
-const analyzeIssue = async (title, description) => {
-  const response = await openai.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
+const analyzeIssue = async (
+  title,
+  description,
+  technicalContext = ""
+) => {
+  const prompt = `
+You are DevTraxe AI, an intelligent software issue investigation assistant.
 
-    input: [
-      {
-        role: "system",
-        content: `
-You are an AI software issue analyst.
+Analyze the reported software issue using the information provided.
 
-Your job is to analyze software issues reported by developers.
+IMPORTANT RULES:
 
-Do not pretend you know the exact codebase or root cause when there is not enough evidence.
+- Do not claim an exact root cause unless the evidence clearly proves it.
+- Clearly distinguish likely causes from confirmed information.
+- Use the technical context when available.
+- Give practical investigation steps a software developer can follow.
+- Keep the analysis concise but technically useful.
+- Confidence should represent how strongly the provided evidence supports the analysis.
 
-Provide a useful technical hypothesis based only on the information given.
-
-The confidence score represents confidence in the analysis, not the severity of the issue.
-        `,
-      },
-      {
-        role: "user",
-        content: `
-Analyze this software issue.
-
-Title:
+ISSUE TITLE:
 ${title}
 
-Description:
+ISSUE DESCRIPTION:
 ${description}
-        `,
-      },
-    ],
 
-    text: {
-      format: {
-        type: "json_schema",
+TECHNICAL CONTEXT:
+${technicalContext || "No additional technical context was provided."}
+`;
 
-        name: "issue_analysis",
+  const response = await ai.models.generateContent({
+    model: "gemini-3.5-flash-lite",
 
-        strict: true,
+    contents: prompt,
 
-        schema: {
-          type: "object",
+    config: {
+      responseMimeType: "application/json",
 
-          properties: {
-            category: {
-              type: "string",
-              enum: [
-                "authentication",
-                "database",
-                "api",
-                "performance",
-                "frontend",
-                "backend",
-                "payment",
-                "security",
-                "network",
-                "other",
-              ],
-            },
+      responseSchema: {
+        type: "object",
 
-            summary: {
-              type: "string",
-            },
-
-            possibleCause: {
-              type: "string",
-            },
-
-            suggestedAction: {
-              type: "string",
-            },
-
-            confidence: {
-              type: "number",
-            },
+        properties: {
+          category: {
+            type: "string",
+            description:
+              "Technical category such as frontend, backend, database, authentication, deployment, networking, performance, or other.",
           },
 
-          required: [
-            "category",
-            "summary",
-            "possibleCause",
-            "suggestedAction",
-            "confidence",
-          ],
+          summary: {
+            type: "string",
+            description:
+              "A short technical summary of the reported issue.",
+          },
 
-          additionalProperties: false,
+          possibleCause: {
+            type: "string",
+            description:
+              "The most likely cause based only on the available evidence.",
+          },
+
+          suggestedAction: {
+            type: "string",
+            description:
+              "The most useful immediate action for the developer.",
+          },
+
+          investigationSteps: {
+            type: "array",
+            items: {
+              type: "string",
+            },
+            description:
+              "Three to five practical steps a developer can follow to investigate the issue.",
+          },
+
+          confidence: {
+            type: "integer",
+            description:
+              "Confidence percentage from 0 to 100.",
+          },
         },
+
+        required: [
+          "category",
+          "summary",
+          "possibleCause",
+          "suggestedAction",
+          "investigationSteps",
+          "confidence",
+        ],
       },
     },
   });
 
-  return JSON.parse(response.output_text);
+  const analysis = JSON.parse(response.text);
+
+  return {
+    category: analysis.category,
+    summary: analysis.summary,
+    possibleCause: analysis.possibleCause,
+    suggestedAction: analysis.suggestedAction,
+    investigationSteps: analysis.investigationSteps,
+    confidence: Math.min(
+      100,
+      Math.max(0, analysis.confidence)
+    ),
+  };
 };
 
 module.exports = {

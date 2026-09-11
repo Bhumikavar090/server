@@ -6,11 +6,16 @@ const { analyzeIssue } = require("../services/aiService");
 const router = express.Router();
 
 
-// CREATE ISSUE AND ANALYZE WITH AI
+// CREATE ISSUE
 
 router.post("/", async (req, res) => {
   try {
-    const { title, description, priority } = req.body;
+    const {
+      title,
+      description,
+      priority,
+      technicalContext,
+    } = req.body;
 
     if (!title || !description) {
       return res.status(400).json({
@@ -18,35 +23,35 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // First save the issue in the database
+    // Save the issue first so the user's report is never lost
     const issue = await Issue.create({
       title,
       description,
       priority: priority || "medium",
+      technicalContext: technicalContext || "",
     });
 
-
     try {
-      // Ask AI to analyze the issue
+      // Generate AI analysis using the available technical context
       const analysis = await analyzeIssue(
         title,
-        description
+        description,
+        technicalContext
       );
 
-      // Save AI analysis into the issue
       issue.category = analysis.category;
 
       issue.aiAnalysis = {
         summary: analysis.summary,
         possibleCause: analysis.possibleCause,
         suggestedAction: analysis.suggestedAction,
+        investigationSteps: analysis.investigationSteps,
         confidence: analysis.confidence,
       };
 
       issue.status = "investigating";
 
       await issue.save();
-
     } catch (aiError) {
       console.error(
         "AI analysis failed:",
@@ -54,12 +59,10 @@ router.post("/", async (req, res) => {
       );
     }
 
-
     res.status(201).json({
       message: "Issue created successfully",
       issue,
     });
-
   } catch (error) {
     console.error(
       "Issue creation failed:",
@@ -68,7 +71,6 @@ router.post("/", async (req, res) => {
 
     res.status(500).json({
       message: "Failed to create issue",
-      error: error.message,
     });
   }
 });
@@ -83,11 +85,9 @@ router.get("/", async (req, res) => {
     });
 
     res.status(200).json(issues);
-
   } catch (error) {
     res.status(500).json({
       message: "Failed to fetch issues",
-      error: error.message,
     });
   }
 });
@@ -108,11 +108,9 @@ router.get("/:id", async (req, res) => {
     }
 
     res.status(200).json(issue);
-
   } catch (error) {
     res.status(500).json({
       message: "Failed to fetch issue",
-      error: error.message,
     });
   }
 });
