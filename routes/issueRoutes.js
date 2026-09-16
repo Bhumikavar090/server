@@ -1,261 +1,533 @@
 const express = require("express");
+const mongoose = require("mongoose");
 
 const Issue = require("../models/Issue");
-const Project = require("../models/Project");
-
-const { analyzeIssue } = require("../services/aiService");
 
 const router = express.Router();
 
-
-// CREATE ISSUE
-
-router.post("/", async (req, res) => {
-  try {
-    const {
-      title,
-      description,
-      priority,
-      technicalContext,
-      project,
-    } = req.body;
-
-    if (!title || !description || !project) {
-      return res.status(400).json({
-        message:
-          "Title, description and project are required",
-      });
-    }
-
-    const existingProject =
-      await Project.findById(project);
-
-    if (!existingProject) {
-      return res.status(404).json({
-        message: "Project not found",
-      });
-    }
-
-    // Save issue first so the report is never lost
-    const issue = await Issue.create({
-      title,
-      description,
-      priority: priority || "medium",
-      technicalContext: technicalContext || "",
-      project,
-    });
-
-    try {
-      // Generate AI investigation
-      const analysis = await analyzeIssue(
-        title,
-        description,
-        technicalContext
-      );
-
-      issue.category = analysis.category;
-
-      issue.aiAnalysis = {
-        summary: analysis.summary,
-        possibleCause: analysis.possibleCause,
-        suggestedAction:
-          analysis.suggestedAction,
-        investigationSteps:
-          analysis.investigationSteps,
-        confidence: analysis.confidence,
-      };
-
-      // Convert AI steps into developer checklist
-      issue.investigation = {
-        steps: analysis.investigationSteps.map(
-          (step) => ({
-            text: step,
-            completed: false,
-          })
-        ),
-        findings: "",
-        resolution: "",
-      };
-
-      issue.status = "investigating";
-
-      await issue.save();
-    } catch (aiError) {
-      console.error(
-        "AI analysis failed:",
-        aiError.message
-      );
-    }
-
-    res.status(201).json({
-      message: "Issue created successfully",
-      issue,
-    });
-  } catch (error) {
-    console.error(
-      "Issue creation failed:",
-      error.message
-    );
-
-    res.status(500).json({
-      message: "Failed to create issue",
-    });
-  }
-});
-
-
+// ======================================================
 // GET ALL ISSUES
+// GET /api/issues
+// ======================================================
 
 router.get("/", async (req, res) => {
   try {
     const issues = await Issue.find()
       .populate("project", "name")
-      .sort({
-        createdAt: -1,
-      });
+      .sort({ createdAt: -1 })
+      .lean();
 
-    res.status(200).json(issues);
+    res.status(200).json({
+      success: true,
+      count: issues.length,
+      issues,
+    });
   } catch (error) {
-    console.error(
-      "Issue fetch failed:",
-      error.message
-    );
+    console.error("GET ISSUES ERROR:", error);
 
     res.status(500).json({
+      success: false,
       message: "Failed to fetch issues",
     });
   }
 });
 
 
-// GET ISSUES BY PROJECT
-
-router.get(
-  "/project/:projectId",
-  async (req, res) => {
-    try {
-      const issues = await Issue.find({
-        project: req.params.projectId,
-      })
-        .populate("project", "name")
-        .sort({
-          createdAt: -1,
-        });
-
-      res.status(200).json(issues);
-    } catch (error) {
-      console.error(
-        "Project issues fetch failed:",
-        error.message
-      );
-
-      res.status(500).json({
-        message:
-          "Failed to fetch project issues",
-      });
-    }
-  }
-);
-
-
-// UPDATE INVESTIGATION
-
-router.patch(
-  "/:id/investigation",
-  async (req, res) => {
-    try {
-      const {
-        steps,
-        findings,
-        resolution,
-        status,
-      } = req.body;
-
-      const updateData = {};
-
-      if (Array.isArray(steps)) {
-        updateData["investigation.steps"] =
-          steps;
-      }
-
-      if (typeof findings === "string") {
-        updateData["investigation.findings"] =
-          findings;
-      }
-
-      if (typeof resolution === "string") {
-        updateData[
-          "investigation.resolution"
-        ] = resolution;
-      }
-
-      if (
-        ["open", "investigating", "resolved"].includes(
-          status
-        )
-      ) {
-        updateData.status = status;
-      }
-
-      const issue =
-        await Issue.findByIdAndUpdate(
-          req.params.id,
-          updateData,
-          {
-            new: true,
-            runValidators: true,
-          }
-        ).populate("project", "name");
-
-      if (!issue) {
-        return res.status(404).json({
-          message: "Issue not found",
-        });
-      }
-
-      res.status(200).json({
-        message:
-          "Investigation updated successfully",
-        issue,
-      });
-    } catch (error) {
-      console.error(
-        "Investigation update failed:",
-        error.message
-      );
-
-      res.status(500).json({
-        message:
-          "Failed to update investigation",
-      });
-    }
-  }
-);
-
-
+// ======================================================
 // GET SINGLE ISSUE
+// GET /api/issues/:id
+// ======================================================
 
 router.get("/:id", async (req, res) => {
   try {
-    const issue = await Issue.findById(
-      req.params.id
-    ).populate("project", "name");
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid issue ID",
+      });
+    }
+
+    const issue = await Issue.findById(id)
+      .populate("project", "name")
+      .lean();
 
     if (!issue) {
       return res.status(404).json({
+        success: false,
         message: "Issue not found",
       });
     }
 
-    res.status(200).json(issue);
+    res.status(200).json({
+      success: true,
+      issue,
+    });
   } catch (error) {
-    console.error(
-      "Issue fetch failed:",
-      error.message
-    );
+    console.error("GET ISSUE ERROR:", error);
 
     res.status(500).json({
+      success: false,
       message: "Failed to fetch issue",
+    });
+  }
+});
+
+
+// ======================================================
+// CREATE ISSUE
+// POST /api/issues
+// ======================================================
+
+router.post("/", async (req, res) => {
+  try {
+    const {
+      title,
+      description,
+      technicalContext,
+      project,
+      priority,
+      category,
+      aiAnalysis,
+    } = req.body;
+
+    // -----------------------------------------------
+    // VALIDATION
+    // -----------------------------------------------
+
+    if (!title || !description || !project) {
+      return res.status(400).json({
+        success: false,
+        message: "Title, description and project are required",
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(project)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid project ID",
+      });
+    }
+
+    // -----------------------------------------------
+    // CREATE ISSUE
+    // -----------------------------------------------
+
+    const issue = await Issue.create({
+      title: title.trim(),
+
+      description: description.trim(),
+
+      technicalContext:
+        technicalContext?.trim() || "",
+
+      project,
+
+      priority: priority || "medium",
+
+      category:
+        category || "unclassified",
+
+      aiAnalysis: aiAnalysis || {},
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Issue created successfully",
+      issue,
+    });
+  } catch (error) {
+    console.error("CREATE ISSUE ERROR:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to create issue",
+      error: error.message,
+    });
+  }
+});
+
+
+// ======================================================
+// UPDATE ISSUE
+// PATCH /api/issues/:id
+// ======================================================
+
+router.patch("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid issue ID",
+      });
+    }
+
+    const allowedFields = [
+      "title",
+      "description",
+      "technicalContext",
+      "priority",
+      "category",
+      "status",
+      "aiAnalysis",
+      "investigation",
+    ];
+
+    const updateData = {};
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    }
+
+    const issue = await Issue.findByIdAndUpdate(
+      id,
+      {
+        $set: updateData,
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: "Issue not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Issue updated successfully",
+      issue,
+    });
+  } catch (error) {
+    console.error("UPDATE ISSUE ERROR:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update issue",
+      error: error.message,
+    });
+  }
+});
+
+
+// ======================================================
+// UPDATE FINDINGS
+// PATCH /api/issues/:id/findings
+// ======================================================
+
+router.patch("/:id/findings", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { findings } = req.body;
+
+    // -----------------------------------------------
+    // VALIDATE ID
+    // -----------------------------------------------
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid issue ID",
+      });
+    }
+
+    // -----------------------------------------------
+    // VALIDATE FINDINGS
+    // -----------------------------------------------
+
+    if (typeof findings !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Findings must be a string",
+      });
+    }
+
+    // -----------------------------------------------
+    // UPDATE ONLY FINDINGS
+    // -----------------------------------------------
+
+    const issue = await Issue.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          "investigation.findings": findings.trim(),
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: "Issue not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Findings saved successfully",
+      issue,
+    });
+  } catch (error) {
+    console.error("UPDATE FINDINGS ERROR:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to save findings",
+      error: error.message,
+    });
+  }
+});
+
+
+// ======================================================
+// UPDATE RESOLUTION
+// PATCH /api/issues/:id/resolution
+// ======================================================
+
+router.patch("/:id/resolution", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { resolution } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid issue ID",
+      });
+    }
+
+    if (typeof resolution !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Resolution must be a string",
+      });
+    }
+
+    const issue = await Issue.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          "investigation.resolution":
+            resolution.trim(),
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: "Issue not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Resolution saved successfully",
+      issue,
+    });
+  } catch (error) {
+    console.error("UPDATE RESOLUTION ERROR:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to save resolution",
+    });
+  }
+});
+
+
+// ======================================================
+// UPDATE STATUS
+// PATCH /api/issues/:id/status
+// ======================================================
+
+router.patch("/:id/status", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const allowedStatuses = [
+      "open",
+      "investigating",
+      "resolved",
+    ];
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid issue ID",
+      });
+    }
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status",
+      });
+    }
+
+    const issue = await Issue.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          status,
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: "Issue not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Status updated successfully",
+      issue,
+    });
+  } catch (error) {
+    console.error("UPDATE STATUS ERROR:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update status",
+    });
+  }
+});
+
+
+// ======================================================
+// COMPLETE INVESTIGATION STEP
+// PATCH /api/issues/:id/investigation-step/:stepIndex
+// ======================================================
+
+router.patch(
+  "/:id/investigation-step/:stepIndex",
+  async (req, res) => {
+    try {
+      const { id, stepIndex } = req.params;
+
+      const index = Number(stepIndex);
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid issue ID",
+        });
+      }
+
+      if (!Number.isInteger(index) || index < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid step index",
+        });
+      }
+
+      const issue = await Issue.findById(id);
+
+      if (!issue) {
+        return res.status(404).json({
+          success: false,
+          message: "Issue not found",
+        });
+      }
+
+      if (
+        !issue.investigation ||
+        !issue.investigation.steps ||
+        !issue.investigation.steps[index]
+      ) {
+        return res.status(404).json({
+          success: false,
+          message: "Investigation step not found",
+        });
+      }
+
+      // Toggle completed state
+      issue.investigation.steps[index].completed =
+        !issue.investigation.steps[index].completed;
+
+      await issue.save();
+
+      res.status(200).json({
+        success: true,
+        message: "Investigation step updated",
+        issue,
+      });
+    } catch (error) {
+      console.error(
+        "UPDATE INVESTIGATION STEP ERROR:",
+        error
+      );
+
+      res.status(500).json({
+        success: false,
+        message:
+          "Failed to update investigation step",
+      });
+    }
+  }
+);
+
+
+// ======================================================
+// DELETE ISSUE
+// DELETE /api/issues/:id
+// ======================================================
+
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid issue ID",
+      });
+    }
+
+    const issue = await Issue.findByIdAndDelete(id);
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: "Issue not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Issue deleted successfully",
+    });
+  } catch (error) {
+    console.error("DELETE ISSUE ERROR:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete issue",
     });
   }
 });

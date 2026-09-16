@@ -2,6 +2,10 @@ const mongoose = require("mongoose");
 
 const issueSchema = new mongoose.Schema(
   {
+    // --------------------------------------------------
+    // BASIC ISSUE INFORMATION
+    // --------------------------------------------------
+
     title: {
       type: String,
       required: true,
@@ -17,7 +21,12 @@ const issueSchema = new mongoose.Schema(
     technicalContext: {
       type: String,
       default: "",
+      trim: true,
     },
+
+    // --------------------------------------------------
+    // PROJECT
+    // --------------------------------------------------
 
     project: {
       type: mongoose.Schema.Types.ObjectId,
@@ -25,11 +34,19 @@ const issueSchema = new mongoose.Schema(
       required: true,
     },
 
+    // --------------------------------------------------
+    // ISSUE STATUS
+    // --------------------------------------------------
+
     status: {
       type: String,
       enum: ["open", "investigating", "resolved"],
       default: "open",
     },
+
+    // --------------------------------------------------
+    // PRIORITY
+    // --------------------------------------------------
 
     priority: {
       type: String,
@@ -37,10 +54,19 @@ const issueSchema = new mongoose.Schema(
       default: "medium",
     },
 
+    // --------------------------------------------------
+    // CATEGORY
+    // --------------------------------------------------
+
     category: {
       type: String,
       default: "unclassified",
+      trim: true,
     },
+
+    // --------------------------------------------------
+    // AI ANALYSIS
+    // --------------------------------------------------
 
     aiAnalysis: {
       summary: {
@@ -66,10 +92,17 @@ const issueSchema = new mongoose.Schema(
       confidence: {
         type: Number,
         default: 0,
+        min: 0,
+        max: 100,
       },
     },
 
+    // --------------------------------------------------
+    // DEVELOPER INVESTIGATION
+    // --------------------------------------------------
+
     investigation: {
+      // AI-generated / developer investigation checklist
       steps: [
         {
           text: {
@@ -84,17 +117,23 @@ const issueSchema = new mongoose.Schema(
         },
       ],
 
+      // What the developer actually discovered
       findings: {
         type: String,
         default: "",
       },
 
+      // Final solution applied by developer
       resolution: {
         type: String,
         default: "",
       },
     },
   },
+
+  // Automatically creates:
+  // createdAt
+  // updatedAt
   {
     timestamps: true,
   }
