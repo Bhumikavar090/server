@@ -36,7 +36,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // Save issue first
+    // Save issue first so the report is never lost
     const issue = await Issue.create({
       title,
       description,
@@ -46,7 +46,7 @@ router.post("/", async (req, res) => {
     });
 
     try {
-      // Generate AI analysis
+      // Generate AI investigation
       const analysis = await analyzeIssue(
         title,
         description,
@@ -63,6 +63,18 @@ router.post("/", async (req, res) => {
         investigationSteps:
           analysis.investigationSteps,
         confidence: analysis.confidence,
+      };
+
+      // Convert AI steps into developer checklist
+      issue.investigation = {
+        steps: analysis.investigationSteps.map(
+          (step) => ({
+            text: step,
+            completed: false,
+          })
+        ),
+        findings: "",
+        resolution: "",
       };
 
       issue.status = "investigating";
@@ -118,28 +130,107 @@ router.get("/", async (req, res) => {
 
 // GET ISSUES BY PROJECT
 
-router.get("/project/:projectId", async (req, res) => {
-  try {
-    const issues = await Issue.find({
-      project: req.params.projectId,
-    })
-      .populate("project", "name")
-      .sort({
-        createdAt: -1,
+router.get(
+  "/project/:projectId",
+  async (req, res) => {
+    try {
+      const issues = await Issue.find({
+        project: req.params.projectId,
+      })
+        .populate("project", "name")
+        .sort({
+          createdAt: -1,
+        });
+
+      res.status(200).json(issues);
+    } catch (error) {
+      console.error(
+        "Project issues fetch failed:",
+        error.message
+      );
+
+      res.status(500).json({
+        message:
+          "Failed to fetch project issues",
       });
-
-    res.status(200).json(issues);
-  } catch (error) {
-    console.error(
-      "Project issues fetch failed:",
-      error.message
-    );
-
-    res.status(500).json({
-      message: "Failed to fetch project issues",
-    });
+    }
   }
-});
+);
+
+
+// UPDATE INVESTIGATION
+
+router.patch(
+  "/:id/investigation",
+  async (req, res) => {
+    try {
+      const {
+        steps,
+        findings,
+        resolution,
+        status,
+      } = req.body;
+
+      const updateData = {};
+
+      if (Array.isArray(steps)) {
+        updateData["investigation.steps"] =
+          steps;
+      }
+
+      if (typeof findings === "string") {
+        updateData["investigation.findings"] =
+          findings;
+      }
+
+      if (typeof resolution === "string") {
+        updateData[
+          "investigation.resolution"
+        ] = resolution;
+      }
+
+      if (
+        ["open", "investigating", "resolved"].includes(
+          status
+        )
+      ) {
+        updateData.status = status;
+      }
+
+      const issue =
+        await Issue.findByIdAndUpdate(
+          req.params.id,
+          updateData,
+          {
+            new: true,
+            runValidators: true,
+          }
+        ).populate("project", "name");
+
+      if (!issue) {
+        return res.status(404).json({
+          message: "Issue not found",
+        });
+      }
+
+      res.status(200).json({
+        message:
+          "Investigation updated successfully",
+        issue,
+      });
+    } catch (error) {
+      console.error(
+        "Investigation update failed:",
+        error.message
+      );
+
+      res.status(500).json({
+        message:
+          "Failed to update investigation",
+      });
+    }
+  }
+);
 
 
 // GET SINGLE ISSUE

@@ -7,7 +7,7 @@ const connectDB = require("./config/db");
 
 const issueRoutes = require("./routes/issueRoutes");
 const projectRoutes = require("./routes/projectRoutes");
-
+const activityRoutes = require("./routes/activityRoutes");
 const app = express();
 
 
@@ -35,7 +35,7 @@ app.get("/", (req, res) => {
 // API ROUTES
 
 app.use("/api/issues", issueRoutes);
-
+app.use("/api/issues", activityRoutes);
 app.use("/api/projects", projectRoutes);
 
 
