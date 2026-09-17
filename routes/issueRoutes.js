@@ -4,7 +4,16 @@ const mongoose = require("mongoose");
 const Issue = require("../models/Issue");
 const Activity = require("../models/Activity");
 
+const authMiddleware = require("../middleware/authMiddleware");
+
 const router = express.Router();
+
+// ======================================================
+// AUTHENTICATION
+// All issue routes require a valid JWT
+// ======================================================
+
+router.use(authMiddleware);
 
 // ======================================================
 // GET ALL ISSUES
@@ -18,7 +27,7 @@ router.get("/", async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: issues.length,
       issues,
@@ -26,13 +35,12 @@ router.get("/", async (req, res) => {
   } catch (error) {
     console.error("GET ISSUES ERROR:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch issues",
     });
   }
 });
-
 
 // ======================================================
 // GET SINGLE ISSUE
@@ -61,20 +69,19 @@ router.get("/:id", async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       issue,
     });
   } catch (error) {
     console.error("GET ISSUE ERROR:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch issue",
     });
   }
 });
-
 
 // ======================================================
 // CREATE ISSUE
@@ -93,14 +100,11 @@ router.post("/", async (req, res) => {
       aiAnalysis,
     } = req.body;
 
-    // -----------------------------------------------
-    // VALIDATION
-    // -----------------------------------------------
-
-    if (!title || !description || !project) {
+    if (!title?.trim() || !description?.trim() || !project) {
       return res.status(400).json({
         success: false,
-        message: "Title, description and project are required",
+        message:
+          "Title, description and project are required",
       });
     }
 
@@ -111,29 +115,26 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // -----------------------------------------------
-    // CREATE ISSUE
-    // -----------------------------------------------
-
     const issue = await Issue.create({
       title: title.trim(),
 
       description: description.trim(),
 
       technicalContext:
-        technicalContext?.trim() || "",
+        typeof technicalContext === "string"
+          ? technicalContext.trim()
+          : "",
 
       project,
 
       priority: priority || "medium",
 
-      category:
-        category || "unclassified",
+      category: category || "unclassified",
 
       aiAnalysis: aiAnalysis || {},
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Issue created successfully",
       issue,
@@ -141,18 +142,16 @@ router.post("/", async (req, res) => {
   } catch (error) {
     console.error("CREATE ISSUE ERROR:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to create issue",
-      error: error.message,
     });
   }
 });
 
-
 // ======================================================
-// UPDATE ISSUE
-// PATCH /api/issues/:id
+// UPDATE FINDINGS
+// PATCH /api/issues/:id/findings
 // ======================================================
 
 router.patch("/:id/findings", async (req, res) => {
@@ -181,89 +180,6 @@ router.patch("/:id/findings", async (req, res) => {
       id,
       {
         $set: {
-          "investigation.findings":
-            findings.trim(),
-        },
-        $setOnInsert: {},
-      },
-      {
-        new: true,
-        runValidators: true,
-      }
-    );
-
-    if (!issue) {
-      return res.status(404).json({
-        success: false,
-        message: "Issue not found",
-      });
-    }
-
-    // Create activity automatically
-    await Activity.create({
-      issue: id,
-      action: "FINDING_ADDED",
-      message: "Developer added investigation findings",
-      metadata: {
-        source: "issue_workspace",
-      },
-    });
-
-    res.status(200).json({
-      success: true,
-      message: "Findings saved successfully",
-      issue,
-    });
-  } catch (error) {
-    console.error("UPDATE FINDINGS ERROR:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to save findings",
-    });
-  }
-});
-
-// ======================================================
-// UPDATE FINDINGS
-// PATCH /api/issues/:id/findings
-// ======================================================
-
-router.patch("/:id/findings", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { findings } = req.body;
-
-    // -----------------------------------------------
-    // VALIDATE ID
-    // -----------------------------------------------
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid issue ID",
-      });
-    }
-
-    // -----------------------------------------------
-    // VALIDATE FINDINGS
-    // -----------------------------------------------
-
-    if (typeof findings !== "string") {
-      return res.status(400).json({
-        success: false,
-        message: "Findings must be a string",
-      });
-    }
-
-    // -----------------------------------------------
-    // UPDATE ONLY FINDINGS
-    // -----------------------------------------------
-
-    const issue = await Issue.findByIdAndUpdate(
-      id,
-      {
-        $set: {
           "investigation.findings": findings.trim(),
         },
       },
@@ -280,7 +196,16 @@ router.patch("/:id/findings", async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    await Activity.create({
+      issue: id,
+      action: "FINDING_ADDED",
+      message: "Developer added investigation findings",
+      metadata: {
+        source: "issue_workspace",
+      },
+    });
+
+    return res.status(200).json({
       success: true,
       message: "Findings saved successfully",
       issue,
@@ -288,14 +213,12 @@ router.patch("/:id/findings", async (req, res) => {
   } catch (error) {
     console.error("UPDATE FINDINGS ERROR:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to save findings",
-      error: error.message,
     });
   }
 });
-
 
 // ======================================================
 // UPDATE RESOLUTION
@@ -354,7 +277,7 @@ router.patch("/:id/resolution", async (req, res) => {
       },
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Resolution saved successfully",
       issue,
@@ -365,7 +288,7 @@ router.patch("/:id/resolution", async (req, res) => {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to save resolution",
     });
@@ -424,6 +347,7 @@ router.patch("/:id/status", async (req, res) => {
 
     await Activity.create({
       issue: id,
+
       action:
         status === "resolved"
           ? "ISSUE_RESOLVED"
@@ -440,7 +364,7 @@ router.patch("/:id/status", async (req, res) => {
       },
     });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Status updated successfully",
       issue,
@@ -451,13 +375,12 @@ router.patch("/:id/status", async (req, res) => {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to update status",
     });
   }
 });
-
 
 // ======================================================
 // COMPLETE INVESTIGATION STEP
@@ -502,19 +425,24 @@ router.patch(
       ) {
         return res.status(404).json({
           success: false,
-          message: "Investigation step not found",
+          message:
+            "Investigation step not found",
         });
       }
 
-      // Toggle completed state
-      issue.investigation.steps[index].completed =
-        !issue.investigation.steps[index].completed;
+      issue.investigation.steps[
+        index
+      ].completed =
+        !issue.investigation.steps[
+          index
+        ].completed;
 
       await issue.save();
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
-        message: "Investigation step updated",
+        message:
+          "Investigation step updated",
         issue,
       });
     } catch (error) {
@@ -523,7 +451,7 @@ router.patch(
         error
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message:
           "Failed to update investigation step",
@@ -531,7 +459,6 @@ router.patch(
     }
   }
 );
-
 
 // ======================================================
 // DELETE ISSUE
@@ -549,7 +476,8 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
-    const issue = await Issue.findByIdAndDelete(id);
+    const issue =
+      await Issue.findByIdAndDelete(id);
 
     if (!issue) {
       return res.status(404).json({
@@ -558,19 +486,21 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Issue deleted successfully",
     });
   } catch (error) {
-    console.error("DELETE ISSUE ERROR:", error);
+    console.error(
+      "DELETE ISSUE ERROR:",
+      error
+    );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to delete issue",
     });
   }
 });
-
 
 module.exports = router;

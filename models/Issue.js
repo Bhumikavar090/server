@@ -33,6 +33,11 @@ const issueSchema = new mongoose.Schema(
       ref: "Project",
       required: true,
     },
+    createdBy: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "User",
+  required: true,
+},
 
     // --------------------------------------------------
     // ISSUE STATUS
@@ -96,6 +101,37 @@ const issueSchema = new mongoose.Schema(
         max: 100,
       },
     },
+    aiFindingsAnalysis: {
+  rootCause: {
+    type: String,
+    default: "",
+  },
+
+  evidenceAssessment: {
+    type: String,
+    default: "",
+  },
+
+  nextAction: {
+    type: String,
+    default: "",
+  },
+
+  resolutionConfidence: {
+    type: Number,
+    default: 0,
+  },
+
+  sufficientEvidence: {
+    type: Boolean,
+    default: false,
+  },
+
+  analyzedAt: {
+    type: Date,
+    default: null,
+  },
+},
 
     // --------------------------------------------------
     // DEVELOPER INVESTIGATION
