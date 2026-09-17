@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 
 const Issue = require("../models/Issue");
+const Activity = require("../models/Activity");
 
 const router = express.Router();
 
@@ -154,9 +155,10 @@ router.post("/", async (req, res) => {
 // PATCH /api/issues/:id
 // ======================================================
 
-router.patch("/:id", async (req, res) => {
+router.patch("/:id/findings", async (req, res) => {
   try {
     const { id } = req.params;
+    const { findings } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -165,29 +167,24 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
-    const allowedFields = [
-      "title",
-      "description",
-      "technicalContext",
-      "priority",
-      "category",
-      "status",
-      "aiAnalysis",
-      "investigation",
-    ];
-
-    const updateData = {};
-
-    for (const field of allowedFields) {
-      if (req.body[field] !== undefined) {
-        updateData[field] = req.body[field];
-      }
+    if (
+      typeof findings !== "string" ||
+      !findings.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Findings cannot be empty",
+      });
     }
 
     const issue = await Issue.findByIdAndUpdate(
       id,
       {
-        $set: updateData,
+        $set: {
+          "investigation.findings":
+            findings.trim(),
+        },
+        $setOnInsert: {},
       },
       {
         new: true,
@@ -202,22 +199,30 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
+    // Create activity automatically
+    await Activity.create({
+      issue: id,
+      action: "FINDING_ADDED",
+      message: "Developer added investigation findings",
+      metadata: {
+        source: "issue_workspace",
+      },
+    });
+
     res.status(200).json({
       success: true,
-      message: "Issue updated successfully",
+      message: "Findings saved successfully",
       issue,
     });
   } catch (error) {
-    console.error("UPDATE ISSUE ERROR:", error);
+    console.error("UPDATE FINDINGS ERROR:", error);
 
     res.status(500).json({
       success: false,
-      message: "Failed to update issue",
-      error: error.message,
+      message: "Failed to save findings",
     });
   }
 });
-
 
 // ======================================================
 // UPDATE FINDINGS
@@ -309,10 +314,13 @@ router.patch("/:id/resolution", async (req, res) => {
       });
     }
 
-    if (typeof resolution !== "string") {
+    if (
+      typeof resolution !== "string" ||
+      !resolution.trim()
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Resolution must be a string",
+        message: "Resolution cannot be empty",
       });
     }
 
@@ -337,13 +345,25 @@ router.patch("/:id/resolution", async (req, res) => {
       });
     }
 
+    await Activity.create({
+      issue: id,
+      action: "RESOLUTION_ADDED",
+      message: "Developer added a resolution",
+      metadata: {
+        source: "issue_workspace",
+      },
+    });
+
     res.status(200).json({
       success: true,
       message: "Resolution saved successfully",
       issue,
     });
   } catch (error) {
-    console.error("UPDATE RESOLUTION ERROR:", error);
+    console.error(
+      "UPDATE RESOLUTION ERROR:",
+      error
+    );
 
     res.status(500).json({
       success: false,
@@ -351,7 +371,6 @@ router.patch("/:id/resolution", async (req, res) => {
     });
   }
 });
-
 
 // ======================================================
 // UPDATE STATUS
@@ -403,13 +422,34 @@ router.patch("/:id/status", async (req, res) => {
       });
     }
 
+    await Activity.create({
+      issue: id,
+      action:
+        status === "resolved"
+          ? "ISSUE_RESOLVED"
+          : "STATUS_CHANGED",
+
+      message:
+        status === "resolved"
+          ? "Issue was marked as resolved"
+          : `Issue status changed to ${status}`,
+
+      metadata: {
+        status,
+        source: "issue_workspace",
+      },
+    });
+
     res.status(200).json({
       success: true,
       message: "Status updated successfully",
       issue,
     });
   } catch (error) {
-    console.error("UPDATE STATUS ERROR:", error);
+    console.error(
+      "UPDATE STATUS ERROR:",
+      error
+    );
 
     res.status(500).json({
       success: false,
