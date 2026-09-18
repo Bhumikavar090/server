@@ -31,9 +31,7 @@ app.use(
         return callback(null, true);
       }
 
-      return callback(
-        new Error("Not allowed by CORS")
-      );
+      return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
   })
@@ -43,21 +41,57 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // =====================================
+// DATABASE CONNECTION
+// =====================================
+
+let dbPromise = null;
+
+const connectDB = async () => {
+  if (mongoose.connection.readyState === 1) {
+    return;
+  }
+
+  if (!dbPromise) {
+    dbPromise = mongoose.connect(process.env.MONGO_URI);
+  }
+
+  await dbPromise;
+};
+
+// =====================================
 // HEALTH CHECK
 // =====================================
 
-app.get("/", (req, res) => {
+app.get("/", async (req, res) => {
   res.status(200).json({
     success: true,
     message: "DevTrace API is running",
   });
 });
 
-app.get("/api/health", (req, res) => {
+app.get("/api/health", async (req, res) => {
   res.status(200).json({
     success: true,
     message: "DevTrace API is healthy",
   });
+});
+
+// =====================================
+// DATABASE FOR API ROUTES
+// =====================================
+
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error("MongoDB connection failed:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Database connection failed",
+    });
+  }
 });
 
 // =====================================
@@ -116,42 +150,7 @@ app.use((error, req, res, next) => {
 });
 
 // =====================================
-// DATABASE CONNECTION
-// =====================================
-
-let dbConnected = false;
-
-const connectDB = async () => {
-  if (dbConnected) {
-    return;
-  }
-
-  await mongoose.connect(process.env.MONGO_URI);
-
-  dbConnected = true;
-
-  console.log("MongoDB Connected");
-};
-
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (error) {
-    console.error(
-      "MongoDB connection failed:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      message: "Database connection failed",
-    });
-  }
-});
-
-// =====================================
-// VERCEL
+// EXPORT FOR VERCEL
 // =====================================
 
 module.exports = app;
@@ -163,20 +162,15 @@ module.exports = app;
 if (process.env.NODE_ENV !== "production") {
   const PORT = process.env.PORT || 5000;
 
-  connectDB()
-    .then(() => {
-      app.listen(PORT, () => {
-        console.log(
-          `DevTrace API running on port ${PORT}`
-        );
-      });
-    })
-    .catch((error) => {
-      console.error(
-        "MongoDB connection failed:",
-        error
-      );
+  app.listen(PORT, () => {
+    console.log(`DevTrace API running on port ${PORT}`);
 
-      process.exit(1);
-    });
+    connectDB()
+      .then(() => {
+        console.log("MongoDB Connected");
+      })
+      .catch((error) => {
+        console.error("MongoDB connection failed:", error);
+      });
+  });
 }
