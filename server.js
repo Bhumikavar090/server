@@ -3,7 +3,6 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 require("dotenv").config();
 
-
 // =====================================
 // ROUTES
 // =====================================
@@ -14,24 +13,34 @@ const projectRoutes = require("./routes/projectRoutes");
 const activityRoutes = require("./routes/activityRoutes");
 const aiRoutes = require("./routes/aiRoutes");
 
-
 const app = express();
-
 
 // =====================================
 // MIDDLEWARE
 // =====================================
 
+const allowedOrigins = [
+  "http://localhost:3000",
+  process.env.CLIENT_URL,
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(
+        new Error("Not allowed by CORS")
+      );
+    },
     credentials: true,
   })
 );
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 
 // =====================================
 // HEALTH CHECK
@@ -51,13 +60,11 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-
 // =====================================
 // AUTH
 // =====================================
 
 app.use("/api/auth", authRoutes);
-
 
 // =====================================
 // ISSUES
@@ -65,13 +72,11 @@ app.use("/api/auth", authRoutes);
 
 app.use("/api/issues", issueRoutes);
 
-
 // =====================================
 // ACTIVITIES
 // =====================================
 
 app.use("/api/issues", activityRoutes);
-
 
 // =====================================
 // PROJECTS
@@ -79,19 +84,11 @@ app.use("/api/issues", activityRoutes);
 
 app.use("/api/projects", projectRoutes);
 
-
-// =====================================
-// FINDINGS
-// =====================================
-
-
-
 // =====================================
 // AI
 // =====================================
 
 app.use("/api/ai", aiRoutes);
-
 
 // =====================================
 // 404
@@ -104,7 +101,6 @@ app.use((req, res) => {
     path: req.originalUrl,
   });
 });
-
 
 // =====================================
 // ERROR HANDLER
@@ -119,23 +115,68 @@ app.use((error, req, res, next) => {
   });
 });
 
-
 // =====================================
-// DATABASE + SERVER
+// DATABASE CONNECTION
 // =====================================
 
-const PORT = process.env.PORT || 5000;
+let dbConnected = false;
 
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log("MongoDB Connected");
+const connectDB = async () => {
+  if (dbConnected) {
+    return;
+  }
 
-    app.listen(PORT, () => {
-      console.log(`DevTrace API running on port ${PORT}`);
+  await mongoose.connect(process.env.MONGO_URI);
+
+  dbConnected = true;
+
+  console.log("MongoDB Connected");
+};
+
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error(
+      "MongoDB connection failed:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Database connection failed",
     });
-  })
-  .catch((error) => {
-    console.error("MongoDB connection failed:", error);
-    process.exit(1);
-  });
+  }
+});
+
+// =====================================
+// VERCEL
+// =====================================
+
+module.exports = app;
+
+// =====================================
+// LOCAL DEVELOPMENT
+// =====================================
+
+if (process.env.NODE_ENV !== "production") {
+  const PORT = process.env.PORT || 5000;
+
+  connectDB()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(
+          `DevTrace API running on port ${PORT}`
+        );
+      });
+    })
+    .catch((error) => {
+      console.error(
+        "MongoDB connection failed:",
+        error
+      );
+
+      process.exit(1);
+    });
+}
